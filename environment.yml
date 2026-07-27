@@ -13,6 +13,7 @@ dependencies:
   - cuik_molmaker>=0.2,<0.3
   - descriptastorus=2.7.0.4
   - optuna
+  - pandas
   - scikit-learn
   - tensorboard
   - wandb
@@ -20,3 +21,8 @@ dependencies:
   - setuptools>=80.0.0,<82.0.0
   - protobuf>=5.29.6
   - pytest
+  - pip
+  # PyTDC (Therapeutics Data Commons) is PyPI-only -- used by the ADMET
+  # benchmarking harness (kermt_admet_group_*.py, build_admet_panels.py).
+  - pip:
+      - PyTDC==1.1.15

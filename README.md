@@ -52,15 +52,19 @@ cd code
 ```
 
 ## ADMET Fine tuning
+These scripts finetune and evaluate the released checkpoint on the [Therapeutics Data Commons](https://tdcommons.ai/) `admet_group` benchmarks — single-task, across 5 seeds on TDC's official splits — and report mean±std in each task's official TDC metric (AUROC/AUPRC for classification, MAE/Spearman for regression) next to published baselines (MolE and TxGemma-27B). They rely on `PyTDC`, which is included in the container environment (`environment.yml`); the TDC splits download automatically into the `--tdc_path` directory on first run.
+
 #### Classification Tasks
 ```
-python scripts/kermt_admet_group_cls.py --code_dir /code --ckpt /model/NV-KERMT-70M-v2/kermt_contrastive_v2.0.pt --seeds 1 2 3 4 5 --epochs 50
+python scripts/kermt_admet_group_cls.py --code_dir /code --ckpt /model/NV-KERMT-70M-v2/kermt_contrastive_v2.0.pt --tdc_path /data --seeds 1 2 3 4 5 --epochs 50
 ```
 
 #### Regression Tasks
 ```
-python scripts/kermt_admet_group_reg.py --code_dir /code --ckpt /model/NV-KERMT-70M-v2/kermt_contrastive_v2.0.pt --seeds 1 2 3 4 5 --epochs 50
+python scripts/kermt_admet_group_reg.py --code_dir /code --ckpt /model/NV-KERMT-70M-v2/kermt_contrastive_v2.0.pt --tdc_path /data --seeds 1 2 3 4 5 --epochs 50
 ```
+
+Each run prints a summary table and writes a `results.json` (mean, std per task) under `/runs/admet_group_{cls,reg}`. Pass `--only <Benchmark_Name ...>` to run a subset, or `--dry_run` to print the commands without training.
 
 ## Prediction
 A finetuned model can be used to make predictions on target molecules. The finetuned model is saved in this directory: `/runs/admet_group_cls/seed1/{task_name}/ckpt_link/model.pt`.
