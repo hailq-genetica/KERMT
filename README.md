@@ -20,40 +20,13 @@ We recommend using a Docker container for running the model. For developers, we 
 
 #### Clone the repository
 ```bash
-git clone https://github.com/NVIDIA-Digital-Bio/KERMT.git
+git clone https://github.com/hailq-genetica/KERMT.git
 cd KERMT
 ```
 
-#### Build the container
-```bash
-docker build --rm -t kermt:latest -f Dockerfile .
-```
+#### Pretrained Model Download
 
-#### Run the container with GPUs
-```bash
-docker run --rm --gpus all --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 -v /path/to/data:/data -v /path/to/reference_pretrained_models:/reference_pretrained_models -it --name kermt  kermt:latest
-
-source /softwares/miniconda3/etc/profile.d/conda.sh && conda activate kermt
-cd code
-```
-
-### Setup environment
-```bash
-export PYTHONPATH=$PWD
-export CUBLAS_WORKSPACE_CONFIG=:4096:8 # for deterministic results
-```
-
-#### [Alternative to Docker container] Install conda environment from file
-```bash
-# Create conda environment (includes cuik-molmaker)
-cd KERMT
-conda env create -n kermt -f environment.yml
-conda activate kermt
-```
-
-## Pretrained Model Download
-
-### KERMT v2.0 (recommended)
+##### KERMT v2.0 (recommended)
 
 The released KERMT v2.0 model is hosted on Hugging Face: [**nvidia/NV-KERMT-70M-v2**](https://huggingface.co/nvidia/NV-KERMT-70M-v2). Its contrastive pretraining is described in the Contrastive KERMT preprint ([arXiv:2606.11508](https://arxiv.org/abs/2606.11508)). The repository bundles the pretrained hybrid checkpoint (`kermt_contrastive_v2.0.pt`) together with its vocabulary files (`pretrain_atom_vocab.json`, `pretrain_bond_vocab.json`, `pretrain_smiles_vocab.pkl`), distributed under the NVIDIA Open Model License. The vocabulary files are an inseparable part of the model — keep them alongside the checkpoint.
 
@@ -63,141 +36,44 @@ pip install huggingface_hub
 huggingface-cli download nvidia/NV-KERMT-70M-v2 --local-dir model/NV-KERMT-70M-v2
 ```
 
-### GROVER base weights
-
-KERMT builds on the original GROVER encoder. The base GROVER weights can be downloaded from:
-   - [GROVER<sub>base</sub>](https://1drv.ms/u/s!Ak4XFI0qaGjOhdlwa2_h-8WAymU1AQ)
-   - [GROVER<sub>large</sub>](https://1drv.ms/u/s!Ak4XFI0qaGjOhdlxC3mGn0LC1NFd6g)
-
-
-## Pretraining
-#### Data Preparation
-Prepare data by generating task labels for functional group prediction task. The SMILES string should be present in a CSV file with a column named `smiles`. See `tests/data/smis_only.csv` for an example.
+#### Build the container
 ```bash
-python scripts/save_features.py --data_path tests/data/smis_only.csv  \
-                                --save_path tests/data/smis_only.npz   \
-                                --features_generator fgtasklabel \
-                                --restart
+docker build --rm -t kermt:latest -f Dockerfile .
 ```
 
-#### Atom/Bond Contextual Property (Vocabulary)
-The atom/bond Contextual Property (Vocabulary) is extracted by `scripts/build_vocab.py`.
- ```bash
-python scripts/build_vocab.py --data_path tests/data/smis_only.csv  \
-                              --vocab_save_folder tests/data/smis_only  \
-                              --dataset_name smis_only
- ```
-The outputs of this script are vocabulary dicts of atoms and bonds, `smis_only_atom_vocab.json` and `smis_only_bond_vocab.json`, respectively (JSON is the default; pass `--vocab_format pkl` for pickle output). For more options for contextual property extraction, please refer to `scripts/build_vocab.py`.
-
-#### Data Splitting
-Split pretraining data and features into smaller files for memory efficiency.
+#### Run the container with GPUs
 ```bash
-python scripts/split_data.py --data_path tests/data/smis_only.csv  \
-                             --features_path tests/data/smis_only.npz  \
-                             --sample_per_file 100  \
-                             --output_path tests/data/smis_only
-```
-It is recommended to set `sample_per_file` to a larger value for big datasets. 
-
-The output dataset folder will look like this:
-```
-smis_only
-  |- feature # the semantic motif labels
-  |- graph # the smiles
-  |- summary.txt
+docker run --rm --gpus all --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 -v ./:/code -v ./data:/data -v ./model:/model -v ./runs:/runs -it --name kermt  kermt:latest
 ```
 
-#### Running Pretraining
-For pretraining on multiple GPUs, set available number of GPUs as `WORLD_SIZE`. As pretraining datasets are large, it is recommended to use a large batch size and ensure near-full GPU memory utilization for maximum efficiency. This example shows how to pretrain on 2 GPUs on a prepared pretraining dataset in the `tests/data/pretrain` directory.
 ```bash
-WORLD_SIZE=2 python pretrain_ddp.py  \
-    --train_data_path tests/data/pretrain/train_9k \
-    --val_data_path tests/data/pretrain/val_1k \
-    --save_dir model/pretrain \
-    --atom_vocab_path tests/data/pretrain/pretrain_atom_vocab.json \
-    --bond_vocab_path tests/data/pretrain/pretrain_bond_vocab.json \
-    --batch_size 256   --dropout 0.1 --depth 6 --num_attn_head 4 --hidden_size 800 \
-    --epochs 100 --init_lr 1E-5 --max_lr 1.5E-4 --final_lr 1E-5 --warmup_epochs 20 \
-    --weight_decay 1E-7 --activation PReLU --backbone gtrans --embedding_output_type \
-    both  --tensorboard --save_interval 100 --use_cuikmolmaker_featurization
-```
-For preparing your own pretraining dataset, please run the [Data Preparation](#data-preparation), [vocabulary generation](#atombond-contextual-property-vocabulary), and [data splitting](#data-splitting) sections above.
-
-## Finetuning
-The dataset for finetuning should be organized into three `.csv` files for train, validation, and test sets. Each of the `.csv` files should contain a column named as `smiles` and columns for prediction tasks. See `tests/data/finetune/` for examples.
-
-
-#### (Optional) Molecular feature extraction
-Given a labelled molecular dataset, it is possible to precompute additional molecular features required to finetune the model from the existing pretrained model. The feature matrix is stored as `.npz`. This examples shows how to precompute normalized RDKit 2D features for training dataset. This step should be repeated for validation and test datasets.
-``` bash
-python scripts/save_features.py --data_path tests/data/finetune/train.csv \
-                                --save_path tests/data/finetune/train.npz \
-                                --features_generator rdkit_2d_normalized \
-                                --restart 
+source /softwares/miniconda3/etc/profile.d/conda.sh && conda activate kermt
+cd code
 ```
 
+## ADMET Fine tuning
+These scripts finetune and evaluate the released checkpoint on the [Therapeutics Data Commons](https://tdcommons.ai/) `admet_group` benchmarks — single-task, across 5 seeds on TDC's official splits — and report mean±std in each task's official TDC metric (AUROC/AUPRC for classification, MAE/Spearman for regression) next to published baselines (MolE and TxGemma-27B). They rely on `PyTDC`, which is included in the container environment (`environment.yml`); the TDC splits download automatically into the `--tdc_path` directory on first run.
 
-#### Finetuning with labelled data
-```bash
-python main.py finetune \
-    --data_path tests/data/finetune/train.csv \
-    --separate_val_path tests/data/finetune/val.csv \
-    --separate_test_path tests/data/finetune/test.csv \
-    --save_dir test_run/finetune \
-    --checkpoint_path reference_pretrained_models/grover_base.pt \
-    --dataset_type regression \
-    --split_type scaffold_balanced \
-    --ensemble_size 1 \
-    --num_folds 1 \
-    --no_features_scaling \
-    --ffn_hidden_size 700 \
-    --ffn_num_layers 3 \
-    --bond_drop_rate 0.1 \
-    --epochs 2 \
-    --metric mae \
-    --self_attention \
-    --dist_coff 0.15 \
-    --max_lr 1e-4 \
-    --final_lr 2e-5 \
-    --dropout 0.0 \
-    --use_cuikmolmaker_featurization \
-    --features_generator rdkit_2d_normalized_cuik_molmaker \
-    --rdkit2D_normalization_type fast \
+#### Classification Tasks
 ```
-`--use_cuikmolmaker_featurization` flag is used to enable `cuik-molmaker` for computing atom and bond features. Additionally, normalized RDKit 2D features can also be computed using `cuik-molmaker` by setting `--features_generator rdkit_2d_normalized_cuik_molmaker`. `--rdkit2D_normalization_type` is used to specify the type of normalization that should be applied to RDKit 2D features.
+python scripts/kermt_admet_group_cls.py --code_dir /code --ckpt /model/NV-KERMT-70M-v2/kermt_contrastive_v2.0.pt --tdc_path /data --seeds 1 2 3 4 5 --epochs 50
+```
 
-#### Finetuning with hyperparameter optimization
-```bash
-python main_hpo.py finetune --data_path tests/data/finetune/train.csv \
-                            --features_path path/to/train.npz \
-                            --separate_val_path tests/data/finetune/val.csv \
-                            --separate_val_features_path  path/to/val.npz \
-                            --separate_test_path tests/data/finetune/test.csv \
-                            --separate_test_features_path  path/to/test.npz \
-                            --save_dir finetune_hpo/ \
-                            --checkpoint_path reference_pretrained_models/grover_base.pt \
-                            --dataset_type regression \
-                            --split_type scaffold_balanced \
-                            --ensemble_size 1 \
-                            --num_folds 1 \
-                            --no_features_scaling \
-                            --weight_decay 5e-06 \
-                            --fine_tune_coff 1.0 \
-                            --epochs 100 \
-                            --n_trials 100 \
-                            --metric mae \
-                            --self_attention 
+#### Regression Tasks
 ```
-The number of trials can be set using `--n_trials` flag and the number of epochs per trial can be set using `--epochs` flag.
+python scripts/kermt_admet_group_reg.py --code_dir /code --ckpt /model/NV-KERMT-70M-v2/kermt_contrastive_v2.0.pt --tdc_path /data --seeds 1 2 3 4 5 --epochs 50
+```
+
+Each run prints a summary table and writes a `results.json` (mean, std per task) under `/runs/admet_group_{cls,reg}`. Pass `--only <Benchmark_Name ...>` to run a subset, or `--dry_run` to print the commands without training.
 
 ## Prediction
-A finetuned model can be used to make predictions on target molecules.
+A finetuned model can be used to make predictions on target molecules. The finetuned model is saved in this directory: `/runs/admet_group_cls/seed1/{task_name}/ckpt_link/model.pt`.
 
 #### Prediction with Finetuned Model
 ``` bash
 python main.py predict \
     --data_path tests/data/finetune/test.csv \
-    --checkpoint_dir path/to/finetuned_model/ \
+    --checkpoint_dir /runs/admet_group_cls/seed1/AMES/ckpt_link/ \
     --no_features_scaling \
     --features_generator rdkit_2d_normalized_cuik_molmaker \
     --output path/to/predictions.csv

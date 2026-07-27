@@ -148,3 +148,5 @@ tests/data/Biogen_for_grover/
 tests/data/ChEMBL_MT/
 tests/data/ZINC15_ChEMBL/
 tests/data/openadmet/
+data/
+runs/
